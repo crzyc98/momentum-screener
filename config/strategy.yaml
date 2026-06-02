@@ -1,0 +1,61 @@
+# Momentum Sleeve Screener — v1 strategy dials.
+# Every threshold the engine uses lives here. Tune freely; nothing is hard-coded in logic.
+# Provenance: [P] Porterhouse-documented · [D] our design dial · [F] Fidelity-mechanics.
+
+universe:
+  market_cap_floor: 20_000_000_000   # >= $20B  [D] ~top-half Russell 1000
+  min_price: 5                       # >= $5    [P]
+  min_avg_dollar_volume: 25_000_000  # liquidity floor for market-order baskets [F]
+  adv_lookback_days: 20              # window for avg daily $ volume
+
+fundamental:
+  require_positive_trailing_eps_growth: true   # [P] earnings strength
+  require_positive_forward_eps_growth: true    # [P] (yfinance forward data is spotty — see README)
+  pcf_top_quartile: true             # P/CF in best (lowest) quartile of universe = top cash-flow quality [P]
+  pcf_quantile: 0.25                 # "top quartile" cutoff
+  quality_top_tier: true             # proxy composite (ROE / op-margin / leverage), no S&P Global score in yfinance
+  quality_quantile: 0.50             # keep top half by quality proxy score
+
+technical:                           # [D] our calibration, not disclosed Porterhouse rules
+  price_above_50sma: true            # Price > 50-day SMA
+  golden_cross_50_over_200: true     # 50-day SMA > 200-day SMA
+  within_pct_of_52w_high: 0.05       # within 5% of 52-week high
+
+momentum:                            # composite rank of survivors [D]
+  lookbacks_months: [3, 6, 9]        # blend smooths regime sensitivity
+  skip_recent_days: 5                # skip most recent ~1 week to dodge reversal noise
+
+portfolio:
+  n_max: 40                          # [D] max equity names
+  weight_per_name: 0.025             # [D] 2.5% each
+  min_names_floor: 25                # [P] below this, let cash grow — don't force exposure
+  cash_ticker: BIL                   # [D] T-bill sleeve (BIL or SHV)
+
+sell:                                # [D] exit != inverse of entry
+  sma50_buffer_pct: 0.02             # close > 2% below 50-day SMA triggers exit
+  drop_if_out_of_top_n: true         # fell out of top-N composite rank
+  drop_if_off_screener: true         # failed a fundamental/technical gate
+  rs_breakdown_lookback_days: 63     # ~3mo relative-strength vs benchmark window
+  rs_breakdown_threshold: -0.05      # SELL if holding underperforms benchmark by more than 5% over window
+
+halo:                                # [P concept] — OBSERVATIONAL ONLY in v1
+  mode: observational                # observational | tiebreaker (v2). Never an LLM call.
+  heavy_asset_sectors:               # GICS sectors treated as heavy-asset / low-obsolescence
+    - Energy
+    - Basic Materials
+    - Industrials
+    - Consumer Defensive
+    - Utilities
+    - Real Estate
+
+backtest:
+  benchmark: SPY
+  start: "2018-01-01"
+  end: "2024-12-31"
+  initial_capital: 100000
+  rebalance: month_end
+
+data:
+  cache_dir: data/cache
+  out_dir: data/out
+  price_history_years: 3             # how much daily history to pull per name

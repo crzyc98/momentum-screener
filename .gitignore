@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Generated artifacts — not source of truth
+data/cache/
+data/out/
+
+# Keep example inputs but ignore real ones
+data/holdings/*.csv
+data/universe/*.csv
+!data/**/example*.csv
