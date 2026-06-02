@@ -7,7 +7,7 @@ The funnel:
 
 ```
 Universe (Fidelity cap-filter export)  →  ≥$20B / price / liquidity floors
-        →  Fundamental quality gate  (EPS growth · P/CF top quartile · quality proxy)
+        →  Fundamental quality gate  (EPS growth · FCF>0 · OCF≥Net Income · profitability top-half)
         →  Technical/trend gate      (Price > 50-SMA > 200-SMA · within 5% of 52-wk high)
         →  Rank survivors by composite momentum (3/6/9-mo blend, skip ~1 week)
         →  Top-N (≤40) equal-weight 2.5% each  |  remainder → BIL  (the cash accordion)
@@ -93,12 +93,23 @@ Data comes from **yfinance** (free) behind a swappable `DataProvider` protocol
    `operatingCashflow`, `trailingEps`, etc. — not point-in-time history. For a live monthly
    screen this is fine. For backtests it isn't (see below).
 2. **Forward EPS coverage is spotty.** Forward EPS growth is a proxy
-   `(forwardEps − trailingEps)/|trailingEps|`. Missing data **fails** the fundamental gate
-   explicitly (never a silent pass). If too many names drop, relax
-   `require_positive_forward_eps_growth` in the config.
-3. **No S&P Global quality score.** The "quality top tier" gate uses a deterministic
-   cross-sectional proxy: mean z-score of ROE, operating margin, and inverse leverage over
-   the liquidity-passed universe.
+   `(forwardEps − trailingEps)/|trailingEps|`. Missing data is handled by
+   `missing_data_policy` (default `skip` — don't penalize a yfinance gap; set `fail` for strict).
+3. **No S&P Global quality score.** The "quality top half" gate uses a momentum-neutral
+   profitability proxy (Novy-Marx / QMJ style): mean z-score of **ROA, gross margin, and
+   operating margin** over the liquidity-passed universe. The Fidelity field map uses the real
+   S&P Global score directly.
+
+### Why the fundamental gate is quality, not value (v1.1)
+
+"Strong cash flows" means cash **generation + accruals quality**, not cheapness. An earlier
+draft used **P/CF top-quartile** — a *value* gate. Value and momentum are negatively correlated
+(Asness/Moskowitz/Pedersen), so stapling a value gate onto a momentum screen collapses the book
+(live test: ~4 names / 90% cash). v1.1 measures cash quality instead: **FCF > 0**, **OCF ≥ Net
+Income** (Sloan accruals — the correct "harder to manipulate than GAAP earnings" check), and a
+**top-half profitability** score. P/CF survives only as an optional **sanity ceiling**
+(`pcf_ceiling`, default 60) to drop blow-off multiples — never a top-quartile requirement.
+A future refinement (FCF margin rising YoY) needs the statements feed and is **not yet wired**.
 
 ### Backtest caveats (stamped into `backtest.md`)
 

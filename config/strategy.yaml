@@ -9,12 +9,21 @@ universe:
   adv_lookback_days: 20              # window for avg daily $ volume
 
 fundamental:
+  # Earnings strength
   require_positive_trailing_eps_growth: true   # [P] earnings strength
   require_positive_forward_eps_growth: true    # [P] (yfinance forward data is spotty — see README)
-  pcf_top_quartile: true             # P/CF in best (lowest) quartile of universe = top cash-flow quality [P]
-  pcf_quantile: 0.25                 # "top quartile" cutoff
-  quality_top_tier: true             # proxy composite (ROE / op-margin / leverage), no S&P Global score in yfinance
-  quality_quantile: 0.50             # keep top half by quality proxy score
+  # Cash-flow QUALITY — momentum-compatible (NOT valuation). v1.1 correction:
+  # P/CF top-quartile was a *value* gate stapled to a momentum screen; value and
+  # momentum are negatively correlated, so it gutted the book. "Strong cash flows"
+  # means cash-generation + accruals quality, which stack cleanly on momentum.
+  require_positive_fcf: true         # [P] FCF > 0 — real cash generation, not cheapness
+  require_ocf_ge_net_income: true    # [P] OCF >= Net Income — accruals check (Sloan); the correct
+                                     #     "harder to manipulate than GAAP earnings" filter
+  quality_top_tier: true             # [P] Fidelity: S&P Global quality top-half; engine: Novy-Marx-style
+  quality_quantile: 0.50             #     profitability proxy (ROA + gross + operating margin), momentum-neutral
+  pcf_ceiling: 60.0                  # [D] P/CF demoted to a far-out sanity ceiling; null to disable
+  missing_data_policy: skip          # [D] skip = don't penalize yfinance gaps; fail = strict
+  # require_fcf_margin_rising: false # [D] YoY FCF-margin growth — NOT YET WIRED (needs statements feed)
 
 technical:                           # [D] our calibration, not disclosed Porterhouse rules
   price_above_50sma: true            # Price > 50-day SMA

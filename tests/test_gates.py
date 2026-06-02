@@ -47,29 +47,76 @@ def test_technical_requires_uptrend_and_near_high():
     assert not bad2 and "52-wk high" in why2
 
 
-def test_fundamental_all_three_required():
-    thr = FundamentalThresholds(pcf_cutoff=15.0, quality_cutoff=0.0)
-    good = pd.Series({"earnings_growth": 0.1, "fwd_eps_growth": 0.1,
-                      "pcf": 12.0, "quality_score": 0.5})
-    ok, _ = passes_fundamental(good, FCFG, thr)
+def _good_row():
+    # FCF>0, OCF>=NI (accruals ok), profitable, sane P/CF, positive EPS growth.
+    return pd.Series({"earnings_growth": 0.1, "fwd_eps_growth": 0.1,
+                      "fcf": 1e9, "accruals_ok": True, "quality_score": 0.5,
+                      "pcf": 12.0})
+
+
+def test_fundamental_quality_gate_passes_clean_name():
+    thr = FundamentalThresholds(quality_cutoff=0.0)
+    ok, _, _ = passes_fundamental(_good_row(), FCFG, thr)
     assert ok
 
-    neg_eps = good.copy(); neg_eps["earnings_growth"] = -0.1
-    bad, why = passes_fundamental(neg_eps, FCFG, thr)
-    assert not bad and "earnings growth" in why
 
-    pricey = good.copy(); pricey["pcf"] = 30.0
-    bad2, why2 = passes_fundamental(pricey, FCFG, thr)
-    assert not bad2 and "P/CF" in why2
-
-    low_q = good.copy(); low_q["quality_score"] = -1.0
-    bad3, why3 = passes_fundamental(low_q, FCFG, thr)
-    assert not bad3 and "quality" in why3
+def test_fundamental_negative_fcf_fails():
+    thr = FundamentalThresholds(quality_cutoff=0.0)
+    row = _good_row(); row["fcf"] = -5e8
+    bad, why, _ = passes_fundamental(row, FCFG, thr)
+    assert not bad and "FCF" in why
 
 
-def test_fundamental_missing_forward_eps_fails_explicitly():
-    thr = FundamentalThresholds(pcf_cutoff=15.0, quality_cutoff=0.0)
-    row = pd.Series({"earnings_growth": 0.1, "fwd_eps_growth": None,
-                     "pcf": 12.0, "quality_score": 0.5})
-    bad, why = passes_fundamental(row, FCFG, thr)
+def test_fundamental_weak_accruals_fails():
+    thr = FundamentalThresholds(quality_cutoff=0.0)
+    row = _good_row(); row["accruals_ok"] = False
+    bad, why, _ = passes_fundamental(row, FCFG, thr)
+    assert not bad and "accruals" in why
+
+
+def test_fundamental_low_profitability_fails():
+    thr = FundamentalThresholds(quality_cutoff=0.0)
+    row = _good_row(); row["quality_score"] = -1.0
+    bad, why, _ = passes_fundamental(row, FCFG, thr)
+    assert not bad and "profitability" in why
+
+
+def test_pcf_is_ceiling_not_value_gate():
+    """A merely-expensive name passes (no top-quartile gate); only blow-off multiples fail."""
+    thr = FundamentalThresholds(quality_cutoff=0.0)
+    pricey = _good_row(); pricey["pcf"] = 45.0          # expensive but under ceiling 60
+    ok, _, _ = passes_fundamental(pricey, FCFG, thr)
+    assert ok
+    blowoff = _good_row(); blowoff["pcf"] = 120.0        # above ceiling
+    bad, why, _ = passes_fundamental(blowoff, FCFG, thr)
+    assert not bad and "ceiling" in why
+
+
+def test_missing_data_policy_skip_vs_fail():
+    from momentum.config import FundamentalConfig
+    thr = FundamentalThresholds(quality_cutoff=0.0)
+    row = _good_row(); row["fwd_eps_growth"] = None      # a yfinance gap
+
+    skip_cfg = FundamentalConfig(missing_data_policy="skip")
+    ok, _, _ = passes_fundamental(row, skip_cfg, thr)
+    assert ok                                            # gap not held against the name
+
+    fail_cfg = FundamentalConfig(missing_data_policy="fail")
+    bad, why, _ = passes_fundamental(row, fail_cfg, thr)
     assert not bad and "forward EPS" in why
+
+
+def test_skip_records_provenance():
+    """Under skip policy, a missing QUALITY field is recorded so it can be flagged."""
+    from momentum.config import FundamentalConfig
+    from momentum.gates import QUALITY_CHECKS
+    thr = FundamentalThresholds(quality_cutoff=0.0)
+    row = _good_row(); row["fcf"] = None                 # missing a quality field
+    ok, _, skipped = passes_fundamental(row, FundamentalConfig(missing_data_policy="skip"), thr)
+    assert ok
+    assert "fcf" in skipped
+    assert any(s in QUALITY_CHECKS for s in skipped)     # -> would set quality_unverified
+
+    # A clean name skips nothing.
+    ok2, _, skipped2 = passes_fundamental(_good_row(), FundamentalConfig(), thr)
+    assert ok2 and skipped2 == []

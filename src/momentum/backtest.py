@@ -104,8 +104,10 @@ def run_backtest(
     if fundamentals == "skip":
         scfg.fundamental.require_positive_trailing_eps_growth = False
         scfg.fundamental.require_positive_forward_eps_growth = False
-        scfg.fundamental.pcf_top_quartile = False
+        scfg.fundamental.require_positive_fcf = False
+        scfg.fundamental.require_ocf_ge_net_income = False
         scfg.fundamental.quality_top_tier = False
+        scfg.fundamental.pcf_ceiling = None
 
     rebal_dates = pd.date_range(start=start, end=end, freq="BME")  # business month-end
     cash_series = sp._prices.get(cash, pd.DataFrame()).get("Close")

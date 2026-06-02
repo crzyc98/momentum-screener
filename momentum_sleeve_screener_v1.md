@@ -38,12 +38,29 @@ TOP N → basket   |   shortfall → T-bill sleeve (the "accordion")
 
 ## 3. Fundamental quality gate `[P]`
 
-Porterhouse screens for "strong earnings and cash flows." Concrete proxies in Fidelity's screener:
+Porterhouse screens for "strong earnings and cash flows." The intent is **quality**, not
+valuation — and that distinction is the whole ballgame here.
+
+> **v1.1 correction — do not use P/CF as a top-quartile gate.** The original draft operationalized
+> "strong cash flows" as *Price-to-Cash-Flow in the top quartile* (i.e., the cheapest 25%). That is a
+> **value** filter, and value is negatively correlated with momentum (Asness/Moskowitz/Pedersen,
+> *Value and Momentum Everywhere*). The technical gate deliberately buys names near 52-wk highs that
+> have *run up* — which makes them *expensive* on P/CF — so a top-quartile P/CF requirement collides
+> head-on with momentum and guts the book (in live testing it left ~4 names / 90% cash). The doc gave
+> the right *rationale* ("cash flow is harder to manipulate than GAAP EPS") but the wrong *tool*:
+> manipulation-resistance is an **accruals/quality** argument, not a cheapness one.
+
+Measure **cash generation and accruals quality**, which are momentum-*neutral* and stack on momentum:
 
 - **Earnings:** positive trailing **and** forward EPS growth (avoid negative-earnings momentum traps)
-- **Cash flow:** **Price-to-Cash-Flow** in the top quartile of the universe (cash flow is harder to manipulate than GAAP EPS — this is the real quality signal)
-- **Quality score:** S&P Global / Fidelity quantitative quality rating in the top tier
-- A name must clear **all three** to advance.
+- **Cash generation:** **Free Cash Flow > 0** (ideally FCF margin rising YoY) — real cash, not price
+- **Accruals quality:** **Operating Cash Flow ≥ Net Income** — earnings backed by cash (Sloan accruals
+  anomaly). *This* is the correct "harder to manipulate than GAAP earnings" filter.
+- **Quality score:** S&P Global / Fidelity quantitative quality rating in the **top half** (a ready-made
+  profitability/balance-sheet composite that is momentum-neutral — let it carry most of the quality weight)
+- **P/CF (optional):** retain *only* as a far-out **sanity ceiling** to exclude blow-off multiples —
+  **never** as a top-quartile requirement.
+- A name must clear the earnings + cash-generation + accruals + quality checks to advance.
 
 ## 4. HALO tilt — *optional overlay* `[P concept]` / `[D as a hard gate]`
 
@@ -77,11 +94,21 @@ This is the mechanism: you never pad the book with marginal names to stay fully 
 
 ## 7. Sell discipline `[D]` — exit ≠ inverse of entry
 
-A held name is **excised** at month-end if **any** trigger fires:
-- Price closes below 50-day SMA (meaningfully, e.g. > ~2%), **or**
-- Falls out of the top-N composite-momentum rank, **or**
+A held name is **excised** at month-end if it is **not in the new top-N book** — i.e. any of:
 - Drops off the screener entirely (failed a fundamental/technical gate), **or**
-- Sustained relative-strength breakdown vs. the index.
+- Price closes meaningfully below the 50-day SMA (> ~2%) — which *forces* the above, since it
+  fails the technical gate, **or**
+- Falls out of the top-N composite-momentum rank.
+
+> **v1.1 reconciliation — sell discipline must not contradict the buy list.** A separate
+> "relative-strength breakdown vs. the index" trigger (e.g. underperforms SPY by >5% over ~63
+> days) is kept only as a **warning**, never a standalone sell, *when the name is still in the new
+> top-N*. Reason: a top-N leader sitting near its 52-wk high that merely lagged a ripping index
+> over the last quarter is in **healthy consolidation** ("coiling"), which the research treats as
+> *bullish* — selling it is the "pull the flowers, water the weeds" mistake the whole strategy
+> exists to prevent. You'd also be selling and re-buying the same name in one rebalance. The
+> **composite-momentum rank is the operative relative-strength exit**; the RS-vs-index check is
+> surfaced (a `warnings` column) so you *see* the wobble without acting on it mid-leadership.
 
 Letting winners run is both the tax-smart move (FIFO sells low-basis lots first — so *don't* trim, only exit) and the momentum-correct move. Same action, two reasons.
 
@@ -100,11 +127,19 @@ Letting winners run is both the tax-smart move (FIFO sells low-basis lots first 
 |---|---|---|
 | Market cap | > $20B | top-half R1000 |
 | EPS growth | positive trailing + forward | earnings strength |
-| Price / Cash Flow | top quartile | cash-flow quality |
-| Quality rating | top tier (S&P Global) | quality overlay |
+| Free Cash Flow | **> 0** (FCF margin rising YoY if exposed) | cash **generation** (not cheapness) |
+| OCF vs Net Income | **Operating Cash Flow ≥ Net Income** | accruals quality (earnings backed by cash) |
+| Quality rating | **top half** (S&P Global) | momentum-neutral profitability/quality overlay |
+| Price / Cash Flow | *optional ceiling only* (exclude blow-off multiples) | sanity cap — **not** a top-quartile gate |
 | Price vs SMA | Price > 50-SMA > 200-SMA | structural uptrend |
 | 52-wk high | within 5% | current leadership |
 | Sort | by 6-mo (and 3/9-mo) price performance | momentum rank |
+
+> **Changed in v1.1 (see §3):** the cash-flow row is now **FCF > 0 + OCF ≥ Net Income**, not
+> *Price/Cash-Flow top quartile*. P/CF is a valuation ratio that fights momentum; FCF and the
+> accruals check measure cash *quality*, which is momentum-neutral. Quality rating relaxed to the
+> **top half** so it carries the quality weight without over-tightening. The engine mirrors this
+> exactly in `config/strategy.yaml`.
 
 *Field names drift as Fidelity updates the screener and its Recognia/S&P data — map to intent, not exact labels. The "RSI Turnover" filter in your source is over-specific; reproduce the* intent *(recently strong, mild healthy consolidation, trend intact) with the price-vs-SMA + %-off-high filters above plus an RSI band if exposed.*
 

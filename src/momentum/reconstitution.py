@@ -138,10 +138,14 @@ def run_reconstitution(
     out = write_plan(result, plan, cfg)
 
     print("\n" + summary_text(result, plan.book))
-    sells = plan.holdings_eval[plan.holdings_eval["action"] == "SELL"] \
-        if not plan.holdings_eval.empty else pd.DataFrame()
-    print(f"\nSell discipline: {len(sells)} SELL / "
-          f"{len(plan.holdings_eval) - len(sells)} HOLD")
+    ev = plan.holdings_eval
+    sells = ev[ev["action"] == "SELL"] if not ev.empty else pd.DataFrame()
+    warned = (
+        int((ev["warnings"].fillna("").str.len() > 0).sum())
+        if not ev.empty and "warnings" in ev else 0
+    )
+    print(f"\nSell discipline: {len(sells)} SELL / {len(ev) - len(sells)} HOLD"
+          + (f"  ({warned} held with warnings)" if warned else ""))
     print(f"Diff: +{len(plan.adds)} add / -{len(plan.deletes)} delete / "
           f"{len(plan.retained)} retain")
     if plan.smart_buy:

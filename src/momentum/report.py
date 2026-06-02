@@ -19,7 +19,8 @@ from momentum.screener import ScreenResult
 # Columns surfaced in the human-readable survivor/selected views.
 _DISPLAY_COLS = [
     "rank", "ticker", "sector", "halo", "momentum",
-    "pct_off_high", "rsi", "pcf", "quality_score", "market_cap",
+    "pct_off_high", "rsi", "pcf", "quality_score",
+    "quality_unverified", "skipped_checks", "market_cap",
 ]
 
 
@@ -44,14 +45,25 @@ def summary_text(result: ScreenResult, book: TargetBook) -> str:
         if book.below_floor else ""
     )
     halo_n = int(result.selected["halo"].sum()) if not result.selected.empty else 0
+    unverified_n = (
+        int(result.selected["quality_unverified"].sum())
+        if not result.selected.empty and "quality_unverified" in result.selected
+        else 0
+    )
+    unverified_note = (
+        f"\n⚠️  {unverified_n}/{book.n_equity} cleared a QUALITY check only on a missing field "
+        "(missing_data_policy=skip) — see quality_unverified / skipped_checks in selected.csv."
+        if unverified_n else ""
+    )
     return (
         f"Momentum Sleeve — screen as of {result.as_of.isoformat()}\n"
         f"  Universe scanned : {len(result.audit)}\n"
         f"  Qualified        : {len(result.survivors)}\n"
         f"  Selected (top-N) : {book.n_equity}  "
         f"(equity {book.equity_weight:.1%} / cash {book.cash_weight:.1%} in {book.cash_ticker})\n"
-        f"  HALO in book     : {halo_n}/{book.n_equity}  (observational only — not gating)"
-        f"{floor_note}"
+        f"  HALO in book     : {halo_n}/{book.n_equity}  (observational only — not gating)\n"
+        f"  Unverified qual. : {unverified_n}/{book.n_equity}  (cleared a quality check on missing data)"
+        f"{floor_note}{unverified_note}"
     )
 
 

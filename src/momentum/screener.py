@@ -15,6 +15,7 @@ import pandas as pd
 from momentum import indicators as ind
 from momentum.config import Config
 from momentum.gates import (
+    QUALITY_CHECKS,
     fundamental_thresholds,
     passes_fundamental,
     passes_liquidity,
@@ -61,10 +62,13 @@ def build_metrics(
             "market_cap": f.market_cap,
             "earnings_growth": f.earnings_growth,
             "fwd_eps_growth": f.forward_eps_growth,
+            "fcf": f.free_cashflow,
+            "accruals_ok": f.accruals_ok,
             "pcf": f.price_to_cashflow,
-            "roe": f.return_on_equity,
+            "roa": f.return_on_assets,
+            "gross_margin": f.gross_margin,
             "op_margin": f.operating_margin,
-            "dte": f.debt_to_equity,
+            "fcf_margin": f.fcf_margin,
         }
         if prices.empty or "Close" not in prices:
             row.update(
@@ -100,6 +104,10 @@ def run_screen(
     df["stage"] = STAGE_SELECTED
     df["status"] = "SELECT"
     df["reason"] = ""
+    # Provenance for missing_data_policy="skip": which gate fields were skipped, and
+    # whether a QUALITY check was among them (i.e. the name cleared the floor unverified).
+    df["skipped_checks"] = ""
+    df["quality_unverified"] = False
 
     # Stage 0: data availability.
     no_data = ~df["has_prices"]
@@ -122,9 +130,12 @@ def run_screen(
 
     # Stage 2: fundamental quality.
     for t, row in df[df["status"] == "SELECT"].iterrows():
-        ok, why = passes_fundamental(row, cfg.fundamental, thr)
+        ok, why, skipped = passes_fundamental(row, cfg.fundamental, thr)
         if not ok:
             df.loc[t, ["stage", "status", "reason"]] = [STAGE_FUNDAMENTAL, "DROP", why]
+        elif skipped:
+            df.loc[t, "skipped_checks"] = ",".join(skipped)
+            df.loc[t, "quality_unverified"] = any(s in QUALITY_CHECKS for s in skipped)
 
     # Stage 3: technical / trend structure.
     for t, row in df[df["status"] == "SELECT"].iterrows():

@@ -117,10 +117,12 @@ with tab_screen:
             st.subheader("Selected book (ranked by composite momentum)")
             cols = [c for c in ["rank", "ticker", "sector", "halo", "momentum",
                                 "pct_off_high", "rsi", "pcf", "quality_score",
+                                "quality_unverified", "skipped_checks",
                                 "market_cap"] if c in result.selected.columns]
             st.dataframe(_fmt(result.selected[cols]), hide_index=True,
                          use_container_width=True)
-            st.caption("HALO column is observational only — it does not gate or reweight.")
+            st.caption("HALO is observational only (not gating). `quality_unverified` = cleared "
+                       "a quality check only because a field was missing (skip policy).")
         with right:
             st.subheader("Drops by funnel stage")
             db = drop_breakdown(result)

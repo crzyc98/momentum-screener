@@ -61,15 +61,20 @@ def fake_provider(as_of):
         # Vary drift so momentum ranking is unambiguous and deterministic.
         prices[tkr] = make_prices(as_of, days=420, start=50 + i,
                                    drift=0.0006 + i * 0.0001, seed=i)
+        ocf = (50e9 + i * 1e9) / 12.0          # P/CF = 12 (well under any ceiling)
         info[tkr] = {
             "marketCap": 50e9 + i * 1e9,
             "sector": sectors[i],
             "trailingEps": 5.0,
-            "forwardEps": 6.0,            # positive forward growth
-            "earningsGrowth": 0.15,       # positive trailing
-            "operatingCashflow": (50e9 + i * 1e9) / 12.0,  # P/CF = 12
-            "returnOnEquity": 0.25,
+            "forwardEps": 6.0,                  # positive forward growth
+            "earningsGrowth": 0.15,             # positive trailing
+            "operatingCashflow": ocf,
+            "freeCashflow": ocf * 0.8,          # FCF > 0
+            "netIncomeToCommon": ocf * 0.7,     # OCF >= NI -> accruals_ok
+            "returnOnAssets": 0.12,
+            "grossMargins": 0.45,
             "operatingMargins": 0.30,
+            "totalRevenue": (50e9 + i * 1e9) * 0.5,
             "debtToEquity": 40.0,
         }
     return FakeProvider(prices, info)

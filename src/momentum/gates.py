@@ -2,12 +2,12 @@
 
 Each ``passes_*`` function returns ``(ok, reason)`` where ``reason`` is empty on
 pass and a human-readable explanation on fail — that string is what lands in the
-audit trail. Cross-sectional cutoffs (P/CF quartile, quality tier) are computed
-once over the liquidity-passed universe by :func:`fundamental_thresholds`.
+audit trail. The cross-sectional profitability cutoff is computed once over the
+liquidity-passed universe by :func:`fundamental_thresholds`.
 
-Missing data fails the relevant gate explicitly (never silently passes). If
-yfinance's spotty forward-EPS coverage drops too many names, relax the dial in
-``config/strategy.yaml`` rather than guessing values here.
+Fundamental gate is momentum-COMPATIBLE quality (cash generation + accruals +
+profitability), not valuation — see the v1.1 note in ``config/strategy.yaml``.
+Missing-data handling follows ``missing_data_policy`` (skip vs fail).
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def passes_liquidity(row: pd.Series, cfg: UniverseConfig) -> tuple[bool, str]:
     return True, ""
 
 
-# ------------------------------------------------------------------ quality proxy
+# ------------------------------------------------------------ profitability quality
 def _zscore(s: pd.Series) -> pd.Series:
     std = s.std(ddof=0)
     if std == 0 or pd.isna(std):
@@ -42,58 +42,96 @@ def _zscore(s: pd.Series) -> pd.Series:
 
 
 def quality_score(df: pd.DataFrame) -> pd.Series:
-    """Deterministic quality proxy: mean z-score of ROE, operating margin, and
-    inverse leverage over the given (liquidity-passed) universe. yfinance has no
-    S&P Global quality score, so this stands in for it — documented in README."""
-    roe = _zscore(df["roe"].astype(float))
+    """Momentum-NEUTRAL profitability proxy (Novy-Marx / QMJ style): mean z-score
+    of ROA, gross margin, and operating margin over the liquidity-passed universe.
+
+    Profitability isn't anti-correlated with price strength the way cheapness is,
+    so it stacks cleanly on momentum. Stands in for the S&P Global quality score
+    that yfinance lacks (the Fidelity field map uses S&P Global directly)."""
+    roa = _zscore(df["roa"].astype(float))
+    gm = _zscore(df["gross_margin"].astype(float))
     opm = _zscore(df["op_margin"].astype(float))
-    lev = -_zscore(df["dte"].astype(float))  # lower debt/equity is better
-    return pd.concat([roe, opm, lev], axis=1).mean(axis=1, skipna=True)
+    return pd.concat([roa, gm, opm], axis=1).mean(axis=1, skipna=True)
 
 
 @dataclass(frozen=True)
 class FundamentalThresholds:
-    pcf_cutoff: float | None        # pass if P/CF <= cutoff (lowest quartile)
-    quality_cutoff: float | None    # pass if quality_score >= cutoff
+    quality_cutoff: float | None    # pass if quality_score >= cutoff (top-half profitability)
 
 
 def fundamental_thresholds(df: pd.DataFrame, cfg: FundamentalConfig) -> FundamentalThresholds:
-    """Cross-sectional cutoffs computed over the liquidity-passed universe."""
-    pcf = df["pcf"].dropna()
-    pcf_cutoff = float(pcf.quantile(cfg.pcf_quantile)) if len(pcf) else None
+    """Cross-sectional quality cutoff over the liquidity-passed universe."""
     qs = df["quality_score"].dropna()
     quality_cutoff = float(qs.quantile(1.0 - cfg.quality_quantile)) if len(qs) else None
-    return FundamentalThresholds(pcf_cutoff=pcf_cutoff, quality_cutoff=quality_cutoff)
+    return FundamentalThresholds(quality_cutoff=quality_cutoff)
+
+
+# Checks whose absence means a name cleared the QUALITY floor on unverified data.
+QUALITY_CHECKS = frozenset({"fcf", "accruals", "profitability"})
 
 
 def passes_fundamental(
     row: pd.Series, cfg: FundamentalConfig, thr: FundamentalThresholds
-) -> tuple[bool, str]:
+) -> tuple[bool, str, list[str]]:
+    """Momentum-compatible quality gate: earnings strength + cash generation +
+    accruals quality + profitability. Cash flow is treated as *quality*, not
+    *valuation* (P/CF is only a far-out sanity ceiling).
+
+    Returns ``(ok, reason, skipped)``. Under ``missing_data_policy == "skip"`` a
+    missing field is recorded in ``skipped`` (the check is not held against the
+    name) rather than failing it — so callers can flag any name that qualified
+    only because a gate field was absent (see :data:`QUALITY_CHECKS`)."""
+    fail_on_missing = cfg.missing_data_policy == "fail"
+    skipped: list[str] = []
+
+    def gap(key: str, label: str) -> tuple[bool, str, list[str]] | None:
+        """Handle a missing field: fail (strict) or record-and-continue (skip)."""
+        if fail_on_missing:
+            return False, f"missing {label}", skipped
+        skipped.append(key)
+        return None
+
     if cfg.require_positive_trailing_eps_growth:
         eg = row.get("earnings_growth")
         if pd.isna(eg):
-            return False, "missing trailing earnings growth"
-        if eg <= 0:
-            return False, f"trailing earnings growth {eg:.1%} <= 0"
+            if (m := gap("trailing_eps", "trailing earnings growth")):
+                return m
+        elif eg <= 0:
+            return False, f"trailing earnings growth {eg:.1%} <= 0", skipped
     if cfg.require_positive_forward_eps_growth:
         fg = row.get("fwd_eps_growth")
         if pd.isna(fg):
-            return False, "missing forward EPS growth"
-        if fg <= 0:
-            return False, f"forward EPS growth {fg:.1%} <= 0"
-    if cfg.pcf_top_quartile:
-        pcf = row.get("pcf")
-        if pd.isna(pcf):
-            return False, "missing / non-positive cash flow (P/CF)"
-        if thr.pcf_cutoff is not None and pcf > thr.pcf_cutoff:
-            return False, f"P/CF {pcf:.1f} above top-quartile cutoff {thr.pcf_cutoff:.1f}"
+            if (m := gap("forward_eps", "forward EPS growth")):
+                return m
+        elif fg <= 0:
+            return False, f"forward EPS growth {fg:.1%} <= 0", skipped
+    if cfg.require_positive_fcf:
+        fcf = row.get("fcf")
+        if pd.isna(fcf):
+            if (m := gap("fcf", "free cash flow")):
+                return m
+        elif fcf <= 0:
+            return False, "FCF <= 0 (no cash generation)", skipped
+    if cfg.require_ocf_ge_net_income:
+        acc = row.get("accruals_ok")
+        if pd.isna(acc):
+            if (m := gap("accruals", "accruals (OCF vs net income)")):
+                return m
+        elif not acc:
+            return False, "OCF < net income (weak accruals quality)", skipped
     if cfg.quality_top_tier:
         qs = row.get("quality_score")
         if pd.isna(qs):
-            return False, "missing quality inputs"
-        if thr.quality_cutoff is not None and qs < thr.quality_cutoff:
-            return False, "quality proxy below top-tier cutoff"
-    return True, ""
+            if (m := gap("profitability", "profitability inputs")):
+                return m
+        elif thr.quality_cutoff is not None and qs < thr.quality_cutoff:
+            return False, "profitability below top-half cutoff", skipped
+    if cfg.pcf_ceiling is not None:
+        pcf = row.get("pcf")
+        # Ceiling only — a present, absurd multiple is excluded; missing P/CF never fails here.
+        if not pd.isna(pcf) and pcf > cfg.pcf_ceiling:
+            return False, f"P/CF {pcf:.1f} above sanity ceiling {cfg.pcf_ceiling:.0f}", skipped
+    return True, "", skipped
 
 
 # ---------------------------------------------------------------------- technical

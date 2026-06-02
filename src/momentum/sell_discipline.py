@@ -39,7 +39,16 @@ def evaluate_holdings(
     cfg: Config,
     as_of: date,
 ) -> pd.DataFrame:
-    """Tag every current holding HOLD or SELL with reasons, per §7."""
+    """Tag every current holding HOLD or SELL, reconciled with the new book.
+
+    Reconciliation rule: a holding is SOLD iff it is **not in the new top-N book**
+    (off-screener, or fell out of the composite-momentum rank — which a >50-SMA
+    break already forces, since that fails the technical gate). Soft signals on a
+    *re-selected* leader (RS breakdown vs the benchmark) are surfaced as
+    **warnings**, never a standalone sell — selling a top-N name near its high on a
+    63-day RS wobble is exactly the "sell the flower" / healthy-consolidation trap
+    the strategy is built to avoid. The composite-momentum rank is the operative
+    relative-strength exit."""
     selected = set(result.selected["ticker"]) if not result.selected.empty else set()
     qualified = set(result.survivors["ticker"]) if not result.survivors.empty else set()
 
@@ -56,9 +65,20 @@ def evaluate_holdings(
     for tkr in holdings["ticker"]:
         if tkr == cfg.portfolio.cash_ticker:
             continue  # the cash sleeve is managed by the accordion, not sold
+        in_book = tkr in selected
+        is_qualified = tkr in qualified
         prices = provider.price_history(tkr, as_of)
-        reasons: list[str] = []
 
+        reasons: list[str] = []     # hard exit causes (drive SELL)
+        warnings: list[str] = []    # soft signals on a still-held leader
+
+        # --- membership: the operative exit signal -------------------------------
+        if not is_qualified:
+            reasons.append("dropped off screener (failed a gate)")
+        elif not in_book:
+            reasons.append("fell out of top-N momentum rank")
+
+        # --- price-based context -------------------------------------------------
         if prices.empty or "Close" not in prices:
             reasons.append("no price data")
         else:
@@ -66,30 +86,27 @@ def evaluate_holdings(
             price = float(close.iloc[-1])
             sma50 = ind.sma(close, 50)
             if sma50 is not None and price < sma50 * (1 - cfg.sell.sma50_buffer_pct):
-                reasons.append(
-                    f"price {price:.2f} > {cfg.sell.sma50_buffer_pct:.0%} below 50-SMA {sma50:.2f}"
-                )
-            # Relative-strength breakdown vs benchmark.
+                note = f"price {price:.2f} > {cfg.sell.sma50_buffer_pct:.0%} below 50-SMA {sma50:.2f}"
+                (reasons if not in_book else warnings).append(note)
             if bench_ret is not None:
                 hr = ind.total_return(close, lb, 0)
                 if hr is not None and (hr - bench_ret) < cfg.sell.rs_breakdown_threshold:
-                    reasons.append(
+                    rs_note = (
                         f"RS breakdown: {hr-bench_ret:+.1%} vs {cfg.backtest.benchmark} "
                         f"over {lb}d (< {cfg.sell.rs_breakdown_threshold:+.0%})"
                     )
-
-        if cfg.sell.drop_if_off_screener and tkr not in qualified:
-            reasons.append("dropped off screener (failed a gate)")
-        elif cfg.sell.drop_if_out_of_top_n and tkr not in selected:
-            # qualified but outside top-N
-            reasons.append("fell out of top-N momentum rank")
+                    # On a re-selected leader this is consolidation, not a sell.
+                    (reasons if not in_book else warnings).append(
+                        rs_note + ("" if not in_book else " — consolidation; held (still top-N)")
+                    )
 
         rows.append({
             "ticker": tkr,
             "action": "SELL" if reasons else "HOLD",
             "reasons": "; ".join(reasons),
-            "in_top_n": tkr in selected,
-            "qualified": tkr in qualified,
+            "warnings": "; ".join(warnings),
+            "in_top_n": in_book,
+            "qualified": is_qualified,
         })
 
     return pd.DataFrame(rows)

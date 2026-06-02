@@ -23,12 +23,19 @@ class UniverseConfig(BaseModel):
 
 
 class FundamentalConfig(BaseModel):
+    # Earnings strength.
     require_positive_trailing_eps_growth: bool = True
     require_positive_forward_eps_growth: bool = True
-    pcf_top_quartile: bool = True
-    pcf_quantile: float = 0.25
-    quality_top_tier: bool = True
-    quality_quantile: float = 0.50
+    # Cash-flow QUALITY (momentum-compatible) — NOT valuation. See halo/README notes.
+    require_positive_fcf: bool = True            # FCF > 0: real cash generation
+    require_ocf_ge_net_income: bool = True       # accruals quality (Sloan): earnings backed by cash
+    quality_top_tier: bool = True                # profitability proxy / S&P Global quality
+    quality_quantile: float = 0.50               # keep top half by quality
+    # P/CF DEMOTED to an optional far-out sanity ceiling (exclude blow-off multiples).
+    # Never a top-quartile value gate (value is anti-correlated with momentum).
+    pcf_ceiling: float | None = 60.0             # set null to disable
+    # How to treat names missing a fundamental field in yfinance.
+    missing_data_policy: str = "skip"            # "skip" (don't penalize) | "fail" (strict)
 
 
 class TechnicalConfig(BaseModel):

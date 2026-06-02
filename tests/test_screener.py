@@ -12,9 +12,9 @@ TICKERS = [f"T{i:02d}" for i in range(10)]
 
 def _cfg():
     cfg = load_config("config/strategy.yaml")
-    # The synthetic universe is only 10 names; relax cross-sectional cutoffs so the
-    # funnel exercises selection rather than an empty quartile intersection.
-    cfg.fundamental.pcf_quantile = 0.9
+    # The synthetic universe is only 10 names with identical profitability; keep the
+    # whole set (quality top-half cutoff = the common value) so the funnel exercises
+    # selection/ranking rather than an arbitrary tie-break.
     cfg.fundamental.quality_quantile = 1.0
     cfg.universe.min_avg_dollar_volume = 1_000_000
     return cfg
@@ -51,6 +51,21 @@ def test_halo_is_observational_not_gating(fake_provider, as_of):
     # But the HALO column itself reflects the config.
     halo_a = run_screen(fake_provider, TICKERS, as_of, cfg_a).selected["halo"].any()
     assert halo_a  # at least one heavy-asset sector present under default config
+
+
+def test_quality_unverified_flag_propagates(fake_provider, as_of):
+    """A name that clears the quality floor only because a field was missing must be
+    flagged quality_unverified in the selected book (skip policy provenance)."""
+    cfg = _cfg()  # default missing_data_policy = skip
+    # Blank out a quality field (FCF) for the top-ranked name T09.
+    fake_provider._info["T09"]["freeCashflow"] = None
+    result = run_screen(fake_provider, TICKERS, as_of, cfg)
+    sel = result.selected.set_index("ticker")
+    assert "T09" in sel.index                      # still selected (not penalized)
+    assert bool(sel.loc["T09", "quality_unverified"]) is True
+    assert "fcf" in sel.loc["T09", "skipped_checks"]
+    # A name with full data is not flagged.
+    assert bool(sel.loc["T08", "quality_unverified"]) is False
 
 
 def test_audit_covers_every_input(fake_provider, as_of):

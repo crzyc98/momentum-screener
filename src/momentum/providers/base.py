@@ -47,19 +47,42 @@ class Fundamentals:
     forward_eps: float | None
     earnings_growth: float | None          # trailing YoY earnings growth
     operating_cashflow: float | None
+    free_cashflow: float | None            # cash generation (FCF > 0 is the signal)
+    net_income: float | None               # for the accruals check (OCF >= NI)
     return_on_equity: float | None
+    return_on_assets: float | None
     operating_margin: float | None
+    gross_margin: float | None
+    revenue: float | None
     debt_to_equity: float | None
     business_summary: str | None
 
     @property
     def price_to_cashflow(self) -> float | None:
-        """P/CF = market cap / operating cash flow. Lower = stronger cash yield."""
+        """P/CF = market cap / operating cash flow. v1.1: used ONLY as a far-out
+        sanity ceiling (exclude blow-off multiples), NOT as a value gate — P/CF is
+        a valuation ratio, anti-correlated with momentum, so a top-quartile cut
+        would fight the strategy."""
         if self.market_cap is None or not self.operating_cashflow:
             return None
         if self.operating_cashflow <= 0:
             return None  # negative/zero OCF is disqualifying, not "cheap"
         return self.market_cap / self.operating_cashflow
+
+    @property
+    def accruals_ok(self) -> bool | None:
+        """OCF >= Net Income — earnings backed by real cash (Sloan accruals).
+        The correct operationalization of 'cash flow is harder to manipulate'."""
+        if self.operating_cashflow is None or self.net_income is None:
+            return None
+        return self.operating_cashflow >= self.net_income
+
+    @property
+    def fcf_margin(self) -> float | None:
+        """Free cash flow / revenue — cash-generation quality, momentum-neutral."""
+        if self.free_cashflow is None or not self.revenue:
+            return None
+        return self.free_cashflow / self.revenue
 
     @property
     def forward_eps_growth(self) -> float | None:
@@ -94,8 +117,13 @@ def extract_fundamentals(ticker: str, info: dict) -> Fundamentals:
         forward_eps=_num(info, "forwardEps"),
         earnings_growth=_num(info, "earningsGrowth"),
         operating_cashflow=_num(info, "operatingCashflow"),
+        free_cashflow=_num(info, "freeCashflow"),
+        net_income=_num(info, "netIncomeToCommon"),
         return_on_equity=_num(info, "returnOnEquity"),
+        return_on_assets=_num(info, "returnOnAssets"),
         operating_margin=_num(info, "operatingMargins"),
+        gross_margin=_num(info, "grossMargins"),
+        revenue=_num(info, "totalRevenue"),
         debt_to_equity=_num(info, "debtToEquity"),
         business_summary=info.get("longBusinessSummary"),
     )

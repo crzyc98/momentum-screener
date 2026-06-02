@@ -28,8 +28,12 @@ _INFO_FIELDS = (
     "earningsGrowth",
     "operatingCashflow",
     "freeCashflow",
+    "netIncomeToCommon",
     "returnOnEquity",
+    "returnOnAssets",
     "operatingMargins",
+    "grossMargins",
+    "totalRevenue",
     "debtToEquity",
     "longBusinessSummary",
 )
